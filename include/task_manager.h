@@ -22,12 +22,10 @@ struct UserTask
 	const std::string& getName() const;
 	
 	void setName(const std::string name_);
-};
 
-struct TaskEvent
-{
-	UserTask& task;
-	TaskStatus status;
+	int getExitCode() const;
+	
+	int getSignalCode() const;
 };
 
 class TaskManagerImpl;
@@ -51,7 +49,7 @@ public :
 	// Evict the collected events from the event queue.
 	// Return true if at least one event has been ruturned;
 	// otherwise, return false.
-	bool tryPopTaskEvent(std::vector<TaskEvent>& eventsOutput);
+	bool tryPopTaskEvent(std::vector<std::pair<TaskStatus, UserTask*>>& eventsOutput);
 };
 
 #endif // TASK_MANAGER_H

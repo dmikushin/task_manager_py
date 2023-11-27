@@ -126,7 +126,7 @@ struct ManagedTask
 class TaskManagerImpl
 {
 	std::list<ManagedTask> tasks;
-	std::queue<TaskEvent> events;
+	std::queue<std::pair<TaskStatus, UserTask*>> events;
 	std::mutex tasksMtx, eventsMtx;
 
 	static void taskStatusChangeHandler(TaskStatus status, Task& task, void* userData)
@@ -134,13 +134,12 @@ class TaskManagerImpl
 		if (!userData) return;
 		
 		ManagedTask& managedTask = *reinterpret_cast<ManagedTask*>(userData);
-		auto& userTask = *reinterpret_cast<UserTask*>(&managedTask.self);
+		auto* userTask = reinterpret_cast<UserTask*>(&managedTask.self);
 
 		// Publish the collected event to the queue of events.
 		{		
 			std::scoped_lock lock{managedTask.manager->eventsMtx};
-			TaskEvent event{userTask, status};
-			managedTask.manager->events.emplace(std::move(event));
+			managedTask.manager->events.push(std::make_pair(status, userTask));
 		}
 	}
 
@@ -204,7 +203,7 @@ public :
 	// Evict the collected events from the event queue.
 	// Return true if at least one event has been ruturned;
 	// otherwise, return false.
-	bool tryPopTaskEvent(std::vector<TaskEvent>& eventsOutput)
+	bool tryPopTaskEvent(std::vector<std::pair<TaskStatus, UserTask*>>& eventsOutput)
 	{
 		std::scoped_lock lock{eventsMtx};
 
@@ -218,7 +217,7 @@ public :
 			auto& event = events.front();
 			
 			// Handle some of the events ourselves.
-			switch (event.status)
+			switch (event.first)
 			{
 			case TaskErrorWaitingFailed :
 			case TaskFinishedWithExitCode :
@@ -228,7 +227,7 @@ public :
 					std::scoped_lock lock{tasksMtx};
 					
 					// Remove task from the managed tasks list.
-					ManagedTask& managedTask = *reinterpret_cast<ManagedTask*>(event.task.impl);
+					ManagedTask& managedTask = *reinterpret_cast<ManagedTask*>(event.second->impl);
 					managedTask.task.stop();
 					tasks.erase(managedTask.it);
 				}
@@ -245,6 +244,10 @@ public :
 const std::string& UserTask::getName() const { return reinterpret_cast<ManagedTask*>(impl)->name; }
 
 void UserTask::setName(const std::string name_) { reinterpret_cast<ManagedTask*>(impl)->name = name_; }
+
+int UserTask::getExitCode() const { return reinterpret_cast<ManagedTask*>(impl)->task.getExitCode(); }
+
+int UserTask::getSignalCode() const { return reinterpret_cast<ManagedTask*>(impl)->task.getSignalCode(); }
 
 TaskManager::TaskManager()
 {
@@ -274,7 +277,7 @@ bool TaskManager::stopTask(UserTask* userTask)
 // Evict the collected events from the event queue.
 // Return true if at least one event has been ruturned;
 // otherwise, return false.
-bool TaskManager::tryPopTaskEvent(std::vector<TaskEvent>& eventsOutput)
+bool TaskManager::tryPopTaskEvent(std::vector<std::pair<TaskStatus, UserTask*>>& eventsOutput)
 {
 	return impl->tryPopTaskEvent(eventsOutput);
 }

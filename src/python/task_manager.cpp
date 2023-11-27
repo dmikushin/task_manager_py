@@ -19,6 +19,14 @@ public:
     void setName(const std::string& name) {
         task.setName(name);
     }
+    
+	int getExitCode() const {
+		return task.getExitCode();
+	}
+	
+	int getSignalCode() const {
+		return task.getSignalCode();
+	}
 
 private:
     UserTask& task;
@@ -47,8 +55,14 @@ public:
         return manager->stopTask(&userTask.task);
     }
 
-    bool tryPopTaskEvent(std::vector<TaskEvent>& eventsOutput) {
-        return manager->tryPopTaskEvent(eventsOutput);
+    std::vector<std::pair<TaskStatus, PyUserTask>> tryPopTaskEvent() {
+    	std::vector<std::pair<TaskStatus, UserTask*>> eventsOutput;
+        manager->tryPopTaskEvent(eventsOutput);
+        std::vector<std::pair<TaskStatus, PyUserTask>> result;
+        result.reserve(eventsOutput.size());
+        for (int i = 0, e = eventsOutput.size(); i < e; i++)
+            result.emplace_back(eventsOutput[i].first, std::move(PyUserTask(*eventsOutput[i].second)));
+        return result;
     }
 
 private:
@@ -68,7 +82,9 @@ PYBIND11_MODULE(task_manager_py, m) {
 
     py::class_<PyUserTask>(m, "UserTask")
         .def("getName", &PyUserTask::getName)
-        .def("setName", &PyUserTask::setName);
+        .def("setName", &PyUserTask::setName)
+        .def("getExitCode", &PyUserTask::getExitCode)
+        .def("getSignalCode", &PyUserTask::getSignalCode);
 
     py::class_<PyTaskManager>(m, "TaskManager")
         .def(py::init<>())

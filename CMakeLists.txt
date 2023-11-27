@@ -8,6 +8,7 @@ add_subdirectory(ThirdParty/pybind11)
 add_library(${PROJECT_NAME} src/${PROJECT_NAME}.cpp)
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
+set_property(TARGET ${PROJECT_NAME} PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_executable(test_${PROJECT_NAME} src/test/test_${PROJECT_NAME}.cpp)
 set_property(TARGET test_${PROJECT_NAME} PROPERTY CXX_STANDARD 20)

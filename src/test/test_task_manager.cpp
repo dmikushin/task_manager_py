@@ -24,14 +24,16 @@ TEST(TaskManagerTest, TestTaskManager)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-        std::vector<TaskEvent> events;
+        std::vector<std::pair<TaskStatus, UserTask*>> events;
         if (taskManager.tryPopTaskEvent(events))
         {
             for (const auto& event : events)
             {
-                if (event.status == TaskFinishedWithExitCode || event.status == TaskTerminatedBySignal)
+            	auto& status = event.first;
+                if (status == TaskFinishedWithExitCode || status == TaskTerminatedBySignal)
                 {
-                    auto it = std::find(userTasks.begin(), userTasks.end(), &event.task);
+                	auto& task = event.second;
+                    auto it = std::find(userTasks.begin(), userTasks.end(), task);
                     if (it != userTasks.end())
                     {
                     	ASSERT_TRUE(((*it)->getName() == "task1") || ((*it)->getName() == "task2"));
@@ -42,7 +44,7 @@ TEST(TaskManagerTest, TestTaskManager)
         }
     }
 
-    std::vector<TaskEvent> events;
+    std::vector<std::pair<TaskStatus, UserTask*>> events;
     ASSERT_FALSE(taskManager.tryPopTaskEvent(events));
 
     // Ensure the task list is empty
