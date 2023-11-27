@@ -10,8 +10,8 @@ TEST(TaskManagerTest, TestTaskManager)
     TaskManager taskManager;
 
     // Start two tasks
-    auto task1 = taskManager.startTask("sleep 2");
-    auto task2 = taskManager.startTask("sleep 3");
+    auto task1 = taskManager.startTask("sleep 2", "task1");
+    auto task2 = taskManager.startTask("sleep 3", "task2");
 
     ASSERT_EQ(task1.first, TaskStarted);
     ASSERT_EQ(task2.first, TaskStarted);
@@ -32,7 +32,10 @@ TEST(TaskManagerTest, TestTaskManager)
                 {
                     auto it = std::find(userTasks.begin(), userTasks.end(), &event.task);
                     if (it != userTasks.end())
+                    {
+                    	ASSERT_TRUE(((*it)->getName() == "task1") || ((*it)->getName() == "task2"));
                         userTasks.erase(it);
+                    }
                 }
             }
         }

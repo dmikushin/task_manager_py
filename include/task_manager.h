@@ -126,7 +126,8 @@ struct ManagedTask
 	Task task;
 	TaskManager* manager;
 	std::list<ManagedTask>::iterator it;
-	
+	std::string name;
+		
 	ManagedTask(const std::string& shell_cmd, Task::TaskStatusChangedCallback callback,
 		TaskManager* manager_) : task(shell_cmd, callback), manager(manager_) { }
 };
@@ -134,6 +135,10 @@ struct ManagedTask
 struct UserTask
 {
 	std::list<ManagedTask>::iterator it;
+
+	const std::string& getName() const { return it->name; }
+	
+	void setName(const std::string name_) { it->name = name_; }
 };
 
 struct TaskEvent
@@ -175,7 +180,7 @@ public :
 		return tasks.size();
 	}
 	
-	std::pair<TaskStatus, UserTask*> startTask(const std::string& shell_cmd)
+	std::pair<TaskStatus, UserTask*> startTask(const std::string& shell_cmd, const std::string name = "")
 	{
 		// Create a task within a managed container.
 		std::list<ManagedTask>::iterator* it = nullptr;
@@ -193,6 +198,7 @@ public :
 		// If the task is started successfully, return the iterator to the user.
 		if (status == TaskStarted)
 		{
+			(*it)->name = name;
 			return std::make_pair(status, reinterpret_cast<UserTask*>(it));
 		}
 		
