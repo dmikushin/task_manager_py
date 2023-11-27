@@ -3,6 +3,7 @@
 #include <cassert>
 #include <chrono>
 #include <gtest/gtest.h>
+#include <thread>
 #include <vector>
 
 TEST(TaskManagerTest, TestTaskManager)
