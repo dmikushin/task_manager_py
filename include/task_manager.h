@@ -119,17 +119,17 @@ public :
 	}
 };
 
-class TaskManager;
+class TaskManagerImpl;
 
 struct ManagedTask
 {
 	Task task;
-	TaskManager* manager;
+	TaskManagerImpl* manager;
 	std::list<ManagedTask>::iterator it;
 	std::string name;
 		
 	ManagedTask(const std::string& shell_cmd, Task::TaskStatusChangedCallback callback,
-		TaskManager* manager_) : task(shell_cmd, callback), manager(manager_) { }
+		TaskManagerImpl* manager_) : task(shell_cmd, callback), manager(manager_) { }
 };
 
 struct UserTask
@@ -147,7 +147,7 @@ struct TaskEvent
 	TaskStatus status;
 };
 
-class TaskManager
+class TaskManagerImpl
 {
 	std::list<ManagedTask> tasks;
 	std::queue<TaskEvent> events;
@@ -172,7 +172,7 @@ class TaskManager
 
 public :
 
-	TaskManager() { }
+	TaskManagerImpl() { }
 
 	size_t runningTasksCount()
 	{
@@ -263,6 +263,46 @@ public :
         	events.pop();
 	    }
 	    return true;
+    }
+};
+
+class TaskManager
+{
+	TaskManagerImpl* impl;
+
+public :
+
+	TaskManager()
+	{
+		impl = new TaskManagerImpl();
+	}
+	
+	~TaskManager()
+	{
+		delete impl;
+	}
+
+	size_t runningTasksCount()
+	{
+		return impl->runningTasksCount();
+	}
+	
+	std::pair<TaskStatus, UserTask*> startTask(const std::string& shell_cmd, const std::string name = "")
+	{
+		return impl->startTask(shell_cmd, name);
+	}
+	
+	bool stopTask(UserTask* userTask)
+	{
+		return impl->stopTask(userTask);
+	}
+	
+	// Evict the collected events from the event queue.
+	// Return true if at least one event has been ruturned;
+	// otherwise, return false.
+	bool tryPopTaskEvent(std::vector<TaskEvent>& eventsOutput)
+	{
+		return impl->tryPopTaskEvent(eventsOutput);
     }
 };
 
