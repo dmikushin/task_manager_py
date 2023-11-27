@@ -127,18 +127,19 @@ struct ManagedTask
 	TaskManagerImpl* manager;
 	std::list<ManagedTask>::iterator it;
 	std::string name;
+	ManagedTask* self;
 		
 	ManagedTask(const std::string& shell_cmd, Task::TaskStatusChangedCallback callback,
-		TaskManagerImpl* manager_) : task(shell_cmd, callback), manager(manager_) { }
+		TaskManagerImpl* manager_) : task(shell_cmd, callback), manager(manager_), self(this) { }
 };
 
 struct UserTask
 {
-	std::list<ManagedTask>::iterator it;
+	void* impl;
 
-	const std::string& getName() const { return it->name; }
+	const std::string& getName() const { return reinterpret_cast<ManagedTask*>(impl)->name; }
 	
-	void setName(const std::string name_) { it->name = name_; }
+	void setName(const std::string name_) { reinterpret_cast<ManagedTask*>(impl)->name = name_; }
 };
 
 struct TaskEvent
@@ -157,10 +158,8 @@ class TaskManagerImpl
 	{
 		if (!userData) return;
 		
-		auto it = *reinterpret_cast<std::list<ManagedTask>::iterator*>(userData);
-		
-		ManagedTask& managedTask = *it;
-		auto& userTask = *reinterpret_cast<UserTask*>(&managedTask.it);
+		ManagedTask& managedTask = *reinterpret_cast<ManagedTask*>(userData);
+		auto& userTask = *reinterpret_cast<UserTask*>(&managedTask.self);
 
 		// Publish the collected event to the queue of events.
 		{		
@@ -192,14 +191,14 @@ public :
 		}
 		
 		// Start the task, referring to a managed container as a context.
-		auto userTask = reinterpret_cast<void*>(it);
+		auto userTask = reinterpret_cast<void*>((*it)->self);
 		TaskStatus status = (*it)->task.start(userTask);
 		
 		// If the task is started successfully, return the iterator to the user.
 		if (status == TaskStarted)
 		{
 			(*it)->name = name;
-			return std::make_pair(status, reinterpret_cast<UserTask*>(it));
+			return std::make_pair(status, reinterpret_cast<UserTask*>(&(*it)->self));
 		}
 		
 		// Otherwise, erase the container and return an error.
@@ -211,11 +210,13 @@ public :
 	{
 		if (!userTask) return false;
 		
+		auto userit = reinterpret_cast<ManagedTask*>(userTask->impl)->it;
+		
 		// Stop & remove the managed task, if it exists.
 		// Note we have to make this check to ensure the iterator is valid.
 		for (auto it = tasks.begin(); it != tasks.end(); ++it)
 		{
-		    if (it != userTask->it) continue;
+		    if (it != userit) continue;
 
 	    	it->task.stop();
 	        tasks.erase(it);
@@ -252,9 +253,9 @@ public :
 					std::scoped_lock lock{tasksMtx};
 					
 					// Remove task from the managed tasks list.
-					ManagedTask& managedTask = *event.task.it;
+					ManagedTask& managedTask = *reinterpret_cast<ManagedTask*>(event.task.impl);
 					managedTask.task.stop();
-					tasks.erase(event.task.it);
+					tasks.erase(managedTask.it);
 				}
 				break;
 			}
