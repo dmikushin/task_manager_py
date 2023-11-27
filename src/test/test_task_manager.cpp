@@ -2,10 +2,10 @@
 
 #include <cassert>
 #include <chrono>
-#include <iostream>
+#include <gtest/gtest.h>
 #include <vector>
 
-int main()
+TEST(TaskManagerTest, TestTaskManager)
 {
     TaskManager taskManager;
 
@@ -13,8 +13,8 @@ int main()
     auto task1 = taskManager.startTask("sleep 2");
     auto task2 = taskManager.startTask("sleep 3");
 
-    assert(task1.first == TaskStarted);
-    assert(task2.first == TaskStarted);
+    ASSERT_EQ(task1.first, TaskStarted);
+    ASSERT_EQ(task2.first, TaskStarted);
 
     std::vector<UserTask*> userTasks = { task1.second, task2.second };
 
@@ -39,11 +39,15 @@ int main()
     }
 
     std::vector<TaskEvent> events;
-    assert(!taskManager.tryPopTaskEvent(events));
+    ASSERT_FALSE(taskManager.tryPopTaskEvent(events));
 
     // Ensure the task list is empty
-	assert(taskManager.runningTasksCount() == 0);
+    ASSERT_EQ(taskManager.runningTasksCount(), 0);
+}
 
-    return 0;
+int main(int argc, char** argv)
+{
+    testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }
 
