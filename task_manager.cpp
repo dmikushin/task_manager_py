@@ -121,11 +121,12 @@ class TaskManager;
 
 struct ManagedTask
 {
-	Task&& task;
+	Task task;
 	TaskManager* manager;
 	std::list<ManagedTask>::iterator it;
 	
-	ManagedTask(Task&& task_, TaskManager* manager_) : manager(manager_), task(std::move(task_)) { }
+	ManagedTask(const std::string& shell_cmd, Task::TaskStatusChangedCallback callback,
+		TaskManager* manager_) : task(shell_cmd, callback), manager(manager_) { }
 };
 
 struct UserTask
@@ -152,24 +153,7 @@ class TaskManager
 		auto it = *reinterpret_cast<std::list<ManagedTask>::iterator*>(userData);
 		
 		ManagedTask& managedTask = *it;
-		auto userTask = *reinterpret_cast<UserTask*>(&managedTask.it);
-
-		// Handle some of the events ourselves.
-		switch (status)
-		{
-		case TaskErrorWaitingFailed :
-		case TaskFinishedWithExitCode :
-		case TaskTerminatedBySignal :
-		case TaskErrorUnknown :
-			{
-				std::scoped_lock lock{managedTask.manager->tasksMtx};
-				
-				// Remove task from the managed tasks list.
-				managedTask.task.stop();
-				managedTask.manager->tasks.erase(it);
-			}
-			break;
-		}
+		auto& userTask = *reinterpret_cast<UserTask*>(&managedTask.it);
 
 		// Publish the collected event to the queue of events.
 		{		
@@ -182,32 +166,36 @@ class TaskManager
 public :
 
 	TaskManager() { }
+
+	size_t runningTasksCount()
+	{
+		std::scoped_lock lock{tasksMtx};
+		return tasks.size();
+	}
 	
 	std::pair<TaskStatus, UserTask*> startTask(const std::string& shell_cmd)
 	{
-		// Create a task.
-		Task task(shell_cmd, taskStatusChangeHandler);
-		
-		// Create a task managed container.
-		ManagedTask managedTask(std::move(task), this);
+		// Create a task within a managed container.
+		std::list<ManagedTask>::iterator* it = nullptr;
 		{
-			std::scoped_lock lock{managedTask.manager->tasksMtx};
-			tasks.emplace_front(std::move(managedTask));
-			managedTask.it = tasks.begin();
+			std::scoped_lock lock{tasksMtx};
+			tasks.emplace_front(shell_cmd, taskStatusChangeHandler, this);
+			it = &tasks.front().it;
+			*it = tasks.begin();
 		}
 		
 		// Start the task, referring to a managed container as a context.
-		auto userTask = reinterpret_cast<void*>(&managedTask.it);
-		TaskStatus status = task.start(userTask);
+		auto userTask = reinterpret_cast<void*>(it);
+		TaskStatus status = (*it)->task.start(userTask);
 		
 		// If the task is started successfully, return the iterator to the user.
 		if (status == TaskStarted)
 		{
-			return std::make_pair(status, reinterpret_cast<UserTask*>(&managedTask.it));
+			return std::make_pair(status, reinterpret_cast<UserTask*>(it));
 		}
 		
 		// Otherwise, erase the container and return an error.
-		tasks.erase(managedTask.it);
+		tasks.erase(*it);
 		return std::make_pair(status, nullptr);
 	}
 	
@@ -243,15 +231,77 @@ public :
 		eventsOutput.clear();
 		for (size_t i = 0; i < size; i++)
 		{
-        	eventsOutput.emplace_back(std::move(events.front()));
+			auto& event = events.front();
+			
+			// Handle some of the events ourselves.
+			switch (event.status)
+			{
+			case TaskErrorWaitingFailed :
+			case TaskFinishedWithExitCode :
+			case TaskTerminatedBySignal :
+			case TaskErrorUnknown :
+				{
+					std::scoped_lock lock{tasksMtx};
+					
+					// Remove task from the managed tasks list.
+					ManagedTask& managedTask = *event.task.it;
+					managedTask.task.stop();
+					tasks.erase(event.task.it);
+				}
+				break;
+			}
+
+        	eventsOutput.emplace_back(std::move(event));
         	events.pop();
 	    }
 	    return true;
     }
 };
 
+#include <cassert>
+#include <chrono>
+#include <iostream>
+#include <vector>
+
 int main()
 {
-	return 0;
+    TaskManager taskManager;
+
+    // Start two tasks
+    auto task1 = taskManager.startTask("sleep 2");
+    auto task2 = taskManager.startTask("sleep 3");
+
+    assert(task1.first == TaskStarted);
+    assert(task2.first == TaskStarted);
+
+    std::vector<UserTask*> userTasks = { task1.second, task2.second };
+
+    // Wait for the tasks to finish
+    while (!userTasks.empty())
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+        std::vector<TaskEvent> events;
+        if (taskManager.tryPopTaskEvent(events))
+        {
+            for (const auto& event : events)
+            {
+                if (event.status == TaskFinishedWithExitCode || event.status == TaskTerminatedBySignal)
+                {
+                    auto it = std::find(userTasks.begin(), userTasks.end(), &event.task);
+                    if (it != userTasks.end())
+                        userTasks.erase(it);
+                }
+            }
+        }
+    }
+
+    std::vector<TaskEvent> events;
+    assert(!taskManager.tryPopTaskEvent(events));
+
+    // Ensure the task list is empty
+	assert(taskManager.runningTasksCount() == 0);
+
+    return 0;
 }
 
