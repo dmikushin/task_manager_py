@@ -17,7 +17,7 @@ namespace {
 class Task
 {
 	const std::string cmd;
-	std::vector<char*> args;
+	std::vector<char*> args, envs;
 	pid_t pid;
 	std::unique_ptr<std::thread> thread;
 	int exitCode = 0, signalCode = 0;
@@ -38,7 +38,9 @@ public :
 	
 	int getPID() const { return pid; }
 
-	Task(const std::string& cmd_, const std::vector<std::string>& args_, TaskStatusChangedCallback callback_) :
+	Task(const std::string& cmd_,
+		const std::vector<std::string>& args_, const std::vector<std::string>& envs_,
+		TaskStatusChangedCallback callback_) :
 		cmd(cmd_), callback(callback_)
 	{
 		args.reserve(args_.size() + 2);
@@ -47,11 +49,20 @@ public :
 		args.push_back(arg);
 		for (const std::string& arg_ : args_)
 		{
-			arg = new char[arg_.size() + 1];
+			char* arg = new char[arg_.size() + 1];
 			strcpy(arg, arg_.c_str());
 			args.push_back(arg);
 		}
 		args.push_back(nullptr);
+
+		envs.reserve(envs_.size() + 2);
+		for (const std::string& env_ : envs_)
+		{
+			char* env = new char[env_.size() + 1];
+			strcpy(env, env_.c_str());
+			envs.push_back(env);
+		}
+		envs.push_back(nullptr);
 	}
 
 	TaskStatus start(void* userData)
@@ -73,7 +84,7 @@ public :
 			{
 				// Child process
 				// Perform the desired task in the child process
-				if (execvp(cmd.c_str(), args.data()) == -1)
+				if (execvpe(cmd.c_str(), args.data(), envs.data()) == -1)
 				{
 					fprintf(stderr, "execv() error = %d\n", errno);
 					exit(EXIT_FAILURE);
@@ -146,8 +157,10 @@ struct ManagedTask
 	std::string name;
 	ManagedTask* self = nullptr;
 		
-	ManagedTask(const std::string& cmd, const std::vector<std::string>& args, Task::TaskStatusChangedCallback callback,
-		TaskManagerImpl* manager_) : task(cmd, args, callback), manager(manager_), self(this) { }
+	ManagedTask(const std::string& cmd,
+		const std::vector<std::string>& args, const std::vector<std::string>& env,
+		Task::TaskStatusChangedCallback callback,
+		TaskManagerImpl* manager_) : task(cmd, args, env, callback), manager(manager_), self(this) { }
 };
 
 } // namespace
@@ -182,13 +195,15 @@ public :
 		return tasks.size();
 	}
 	
-	std::pair<TaskStatus, UserTask*> startTask(const std::string& cmd, const std::vector<std::string>& args, const std::string name = "")
+	std::pair<TaskStatus, UserTask*> startTask(const std::string& cmd,
+		const std::vector<std::string>& args, const std::vector<std::string>& env,
+		const std::string name = "")
 	{
 		// Create a task within a managed container.
 		std::list<ManagedTask>::iterator* it = nullptr;
 		{
 			std::scoped_lock lock{tasksMtx};
-			tasks.emplace_front(cmd, args, taskStatusChangeHandler, this);
+			tasks.emplace_front(cmd, args, env, taskStatusChangeHandler, this);
 			it = &tasks.front().it;
 			*it = tasks.begin();
 		}
@@ -293,9 +308,11 @@ size_t TaskManager::runningTasksCount()
 	return impl->runningTasksCount();
 }
 
-std::pair<TaskStatus, UserTask*> TaskManager::startTask(const std::string& cmd, const std::vector<std::string>& args, const std::string name)
+std::pair<TaskStatus, UserTask*> TaskManager::startTask(const std::string& cmd,
+	const std::vector<std::string>& args, const std::vector<std::string>& env,
+	const std::string name)
 {
-	return impl->startTask(cmd, args, name);
+	return impl->startTask(cmd, args, env, name);
 }
 
 bool TaskManager::stopTask(UserTask* userTask)

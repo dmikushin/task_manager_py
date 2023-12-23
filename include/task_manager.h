@@ -42,7 +42,9 @@ public :
 
 	size_t runningTasksCount();
 
-	std::pair<TaskStatus, UserTask*> startTask(const std::string& cmd, const std::vector<std::string>& args, const std::string name = "");
+	std::pair<TaskStatus, UserTask*> startTask(const std::string& cmd,
+		const std::vector<std::string>& args, const std::vector<std::string>& env,
+		const std::string name = "");
 	
 	bool stopTask(UserTask* userTask);
 	

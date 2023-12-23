@@ -11,8 +11,8 @@ TEST(SuccessTest, TestTaskManager)
 	TaskManager taskManager;
 
 	// Start two tasks
-	auto task1 = taskManager.startTask("sleep", { "2" }, "task1");
-	auto task2 = taskManager.startTask("sleep", { "3" }, "task2");
+	auto task1 = taskManager.startTask("sleep", { "2" }, { }, "task1");
+	auto task2 = taskManager.startTask("sleep", { "3" }, { }, "task2");
 
 	ASSERT_EQ(task1.first, TaskStarted);
 	ASSERT_EQ(task2.first, TaskStarted);
@@ -56,7 +56,7 @@ TEST(FailTest, TestTaskManager)
 	TaskManager taskManager;
 
 	// Start two tasks
-	auto task1 = taskManager.startTask("ping", { "not.exist" }, "ping");
+	auto task1 = taskManager.startTask("ping", { "not.exist" }, { }, "ping");
 
 	ASSERT_EQ(task1.first, TaskStarted);
 
