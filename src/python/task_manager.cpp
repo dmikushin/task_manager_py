@@ -46,8 +46,8 @@ public:
         return manager->runningTasksCount();
     }
 
-    std::pair<TaskStatus, PyUserTask> startTask(const std::string& shell_cmd, const std::string& name = "") {
-        std::pair<TaskStatus, UserTask*> result = manager->startTask(shell_cmd, name);
+    std::pair<TaskStatus, PyUserTask> startTask(const std::string& cmd, const std::vector<std::string>& args, const std::string& name = "") {
+        std::pair<TaskStatus, UserTask*> result = manager->startTask(cmd, args, name);
         return {result.first, PyUserTask(*result.second)};
     }
 

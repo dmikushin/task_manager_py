@@ -17,7 +17,7 @@ enum TaskStatus
 
 struct UserTask
 {
-	void* impl;
+	void* impl = nullptr;
 
 	const std::string& getName() const;
 	
@@ -41,8 +41,8 @@ public :
 	~TaskManager();
 
 	size_t runningTasksCount();
-	
-	std::pair<TaskStatus, UserTask*> startTask(const std::string& shell_cmd, const std::string name = "");
+
+	std::pair<TaskStatus, UserTask*> startTask(const std::string& cmd, const std::vector<std::string>& args, const std::string name = "");
 	
 	bool stopTask(UserTask* userTask);
 	

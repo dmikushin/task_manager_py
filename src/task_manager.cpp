@@ -1,6 +1,7 @@
 #include "task_manager.h"
 
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <list>
 #include <memory>
@@ -15,7 +16,8 @@ namespace {
 
 class Task
 {
-	const std::string shell_cmd;
+	const std::string cmd;
+	std::vector<char*> args;
 	pid_t pid;
 	std::unique_ptr<std::thread> thread;
 	int exitCode = 0, signalCode = 0;
@@ -36,48 +38,72 @@ public :
 	
 	int getPID() const { return pid; }
 
-	Task(const std::string& shell_cmd_, TaskStatusChangedCallback callback_) :
-		shell_cmd(shell_cmd_), callback(callback_) { }
-	
+	Task(const std::string& cmd_, const std::vector<std::string>& args_, TaskStatusChangedCallback callback_) :
+		cmd(cmd_), callback(callback_)
+	{
+		args.reserve(args_.size() + 2);
+		char* arg = new char[cmd_.size() + 1];
+		strcpy(arg, cmd_.c_str());
+		args.push_back(arg);
+		for (const std::string& arg_ : args_)
+		{
+			arg = new char[arg_.size() + 1];
+			strcpy(arg, arg_.c_str());
+			args.push_back(arg);
+		}
+		args.push_back(nullptr);
+	}
+
 	TaskStatus start(void* userData)
 	{
 		if (thread.get())
 			return TaskErrorAlreadyStarted;
 
-		pid = fork();
-		if (pid == -1)
-		{
-		    // Error occurred while forking
-		    return TaskErrorForkingFailed;
-		}
-
-		if (pid == 0)
-		{
-		    // Child process
-		    // Perform the desired task in the child process
-		    exit(system(shell_cmd.c_str()));
-		}
-
-	    // Parent process
+		// Parent process
 		thread.reset(new std::thread([this, userData]()
 		{
+			pid = fork();
+			if (pid == -1)
+			{
+				// Error occurred while forking
+				return; // TODO TaskErrorForkingFailed;
+			}
+
+			if (pid == 0)
+			{
+				// Child process
+				// Perform the desired task in the child process
+				if (execvp(cmd.c_str(), args.data()) == -1)
+				{
+					fprintf(stderr, "execv() error = %d\n", errno);
+					exit(EXIT_FAILURE);
+				}
+			}
+
 			// Monitor the child process until it exits
 			int status;
-			if (waitpid(pid, &status, 0) == -1)
+			while (waitpid(pid, &status, 0) == -1)
 			{
+				if (errno == EINTR)
+				{
+					// Parent interrrupted - restarting...
+					continue;
+				}
+
 				callback(TaskErrorWaitingFailed, *this, userData);
+				return;
 			}
-			else if (WIFEXITED(status))
+			if (WIFEXITED(status))
 			{
-			    // Child process exited normally
-			    exitCode = WEXITSTATUS(status);
-			    callback(TaskFinishedWithExitCode, *this, userData);
+				// Child process exited normally
+				exitCode = WEXITSTATUS(status);
+				callback(TaskFinishedWithExitCode, *this, userData);
 			}
 			else if (WIFSIGNALED(status))
 			{
-			    // Child process terminated by a signal
-			    signalCode = WTERMSIG(status);
-			    callback(TaskTerminatedBySignal, *this, userData);
+				// Child process terminated by a signal
+				signalCode = WTERMSIG(status);
+				callback(TaskTerminatedBySignal, *this, userData);
 			}
 			else
 			{
@@ -106,6 +132,9 @@ public :
 	~Task()
 	{
 		stop();
+
+		for (char* arg : args)
+			if (arg) delete[] arg;
 	}
 };
 
@@ -115,10 +144,10 @@ struct ManagedTask
 	TaskManagerImpl* manager;
 	std::list<ManagedTask>::iterator it;
 	std::string name;
-	ManagedTask* self;
+	ManagedTask* self = nullptr;
 		
-	ManagedTask(const std::string& shell_cmd, Task::TaskStatusChangedCallback callback,
-		TaskManagerImpl* manager_) : task(shell_cmd, callback), manager(manager_), self(this) { }
+	ManagedTask(const std::string& cmd, const std::vector<std::string>& args, Task::TaskStatusChangedCallback callback,
+		TaskManagerImpl* manager_) : task(cmd, args, callback), manager(manager_), self(this) { }
 };
 
 } // namespace
@@ -153,13 +182,13 @@ public :
 		return tasks.size();
 	}
 	
-	std::pair<TaskStatus, UserTask*> startTask(const std::string& shell_cmd, const std::string name = "")
+	std::pair<TaskStatus, UserTask*> startTask(const std::string& cmd, const std::vector<std::string>& args, const std::string name = "")
 	{
 		// Create a task within a managed container.
 		std::list<ManagedTask>::iterator* it = nullptr;
 		{
 			std::scoped_lock lock{tasksMtx};
-			tasks.emplace_front(shell_cmd, taskStatusChangeHandler, this);
+			tasks.emplace_front(cmd, args, taskStatusChangeHandler, this);
 			it = &tasks.front().it;
 			*it = tasks.begin();
 		}
@@ -190,12 +219,12 @@ public :
 		// Note we have to make this check to ensure the iterator is valid.
 		for (auto it = tasks.begin(); it != tasks.end(); ++it)
 		{
-		    if (it != userit) continue;
+			if (it != userit) continue;
 
-	    	it->task.stop();
-	        tasks.erase(it);
-	        return true;
-	    }
+			it->task.stop();
+			tasks.erase(it);
+			return true;
+		}
 		
 		return false;
 	}
@@ -234,11 +263,11 @@ public :
 				break;
 			}
 
-        	eventsOutput.emplace_back(std::move(event));
-        	events.pop();
-	    }
-	    return true;
-    }
+			eventsOutput.emplace_back(std::move(event));
+			events.pop();
+		}
+		return true;
+	}
 };
 
 const std::string& UserTask::getName() const { return reinterpret_cast<ManagedTask*>(impl)->name; }
@@ -264,9 +293,9 @@ size_t TaskManager::runningTasksCount()
 	return impl->runningTasksCount();
 }
 
-std::pair<TaskStatus, UserTask*> TaskManager::startTask(const std::string& shell_cmd, const std::string name)
+std::pair<TaskStatus, UserTask*> TaskManager::startTask(const std::string& cmd, const std::vector<std::string>& args, const std::string name)
 {
-	return impl->startTask(shell_cmd, name);
+	return impl->startTask(cmd, args, name);
 }
 
 bool TaskManager::stopTask(UserTask* userTask)
